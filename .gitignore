@@ -1,0 +1,19 @@
+# ESP-IDF
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+
+# Office temp files
+~$*.docx
+~$*.xlsx
+*/.~lock.*#
+
+# System
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+cmake-build-*/
