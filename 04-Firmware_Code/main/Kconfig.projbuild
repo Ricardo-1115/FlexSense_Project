@@ -1,0 +1,9 @@
+menu "FlexSense Configuration"
+
+    config CONSOLE_MAX_COMMAND_LINE_LENGTH
+        int "Maximum command line length"
+        default 512
+        help
+            Maximum length of a single command line.
+
+endmenu
