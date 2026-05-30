@@ -181,7 +181,7 @@ esp_err_t sht31_measure(sht31_handle_ptr_t handle, sht31_repeat_t rep,
      * 时钟延展模式命令格式：0x2C + 精度码
      * 例：高精度 = 0x2C06 → 发送 {0x2C, 0x06}
      */
-    uint16_t cmd = CMD_WORD(CMD_MEAS_CLK_HI & 0xFF00) | rep;
+    uint16_t cmd = CMD_WORD(CMD_MEAS_CLK_HI & 0xFF00) | rep;  //
     uint8_t raw[6];
 
     /* 发命令并等待传感器完成测量（传感器会拉低 SCL 表示"正在忙"） */

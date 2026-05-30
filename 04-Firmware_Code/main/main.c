@@ -5,6 +5,9 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_console.h"
@@ -16,6 +19,8 @@
 #include "cmd_system.h"
 #include "cmd_nvs.h"
 #include "cmd_flexsense.h"
+#include "fsr402.h"
+#include "sht31.h"
 
 static const char *TAG = "FlexSense";
 #define PROMPT_STR "FlexSense"
@@ -59,6 +64,26 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &flexsense_i2c_bus));
     ESP_LOGI(TAG, "I2C 总线已初始化 (SDA=GPIO38, SCL=GPIO39)");
+
+    /* ── 压力传感器 FSR402 (ADC1_CH9 / GPIO10, 10kΩ 分压) ── */
+    ESP_ERROR_CHECK(fsr402_init(&fsr402_breadboard_cfg, &flexsense_fsr));
+    ESP_LOGI(TAG, "FSR402 已初始化 (GPIO10/ADC1_CH9, %"PRIu32"kΩ 分压)",
+             fsr402_breadboard_cfg.r_fixed / 1000);
+
+    /* ── 温湿度传感器 SHT31 (I2C 地址 0x44, 100kHz) ── */
+    ESP_ERROR_CHECK(sht31_new(flexsense_i2c_bus, SHT31_ADDR_0, 100000, &flexsense_sht31));
+    /* 初始化后立刻做一次测量（失败自动重试），排除传感器刚上电的不稳定期。
+       这样 REPL 启动后用户第一次读 SHT31 就不会超时了。 */
+    for (int i = 0; i < 3; i++) {
+        sht31_data_t _d;
+        if (sht31_measure(flexsense_sht31, SHT31_REPEAT_HIGH, &_d) == ESP_OK) {
+            ESP_LOGI(TAG, "SHT31 已就绪: %.1f °C / %.1f %%RH",
+                     _d.temperature, _d.humidity);
+            break;
+        }
+        ESP_LOGW(TAG, "SHT31 通信超时，重试 %d/3...", i + 1);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();

@@ -1,7 +1,5 @@
 /*
- * FlexSense — 硬件调试命令 (GPIO / I2C / ADC)
- *
- * sensor/fsr 命令待对应驱动程序就绪后补充。
+ * FlexSense — 硬件调试命令 (GPIO / I2C / ADC / SHT31 / FSR402)
  */
 
 #include <stdio.h>
@@ -14,11 +12,14 @@
 #include "driver/i2c_master.h"
 #include "esp_adc/adc_oneshot.h"
 #include "sht31.h"
+#include "fsr402.h"
 
 static const char *TAG = "cmd_flexsense";
 
-/* I2C 主总线 — 由 main.c 初始化 */
+/* 全局传感器句柄 — 由 main.c 初始化，各模块共用 */
 i2c_master_bus_handle_t flexsense_i2c_bus = NULL;
+fsr402_handle_ptr_t     flexsense_fsr     = NULL;
+sht31_handle_ptr_t      flexsense_sht31    = NULL;
 
 /* ========== gpio <pin> --set <0|1> | --get ========== */
 static struct {
@@ -197,8 +198,8 @@ static void register_adc(void)
  *   sht31 heater on|off    — 控制防结露加热器
  *
  * 注意：
- *   每条命令都会临时创建一个 SHT31 设备句柄，用完即销毁
- *   （但 I2C 总线本身由 main.c 统一管理，不会反复创建销毁）
+ *   SHT31 句柄由 main.c 在启动时一次性初始化，调试命令直接复用。
+ *   I2C 总线同样由 main.c 统一管理。详情见 cmd_flexsense.h。
  */
 
 /* 子命令参数表 */
@@ -215,6 +216,10 @@ static int cmd_sht31(int argc, char **argv)
         ESP_LOGE(TAG, "I2C 总线未初始化");
         return 1;
     }
+    if (flexsense_sht31 == NULL) {
+        ESP_LOGE(TAG, "SHT31 未初始化（main.c 中初始化失败）");
+        return 1;
+    }
 
     /* 解析命令行参数 */
     int nerrors = arg_parse(argc, argv, (void **)&sht31_args);
@@ -225,19 +230,10 @@ static int cmd_sht31(int argc, char **argv)
 
     const char *sub = sht31_args.cmd->sval[0];
 
-    /* 在共享 I2C 总线上创建一个临时的 SHT31 设备 */
-    sht31_handle_ptr_t sht31;
-    esp_err_t err = sht31_new(flexsense_i2c_bus, SHT31_ADDR_0, 100000, &sht31);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "SHT31 初始化失败: %s", esp_err_to_name(err));
-        return 1;
-    }
-
     /* ---- 子命令分发 ---- */
     if (strcmp(sub, "read") == 0) {
-        /* 测量：发命令 → 等传感器完成 → 读结果（含 CRC 自动校验） */
         sht31_data_t data;
-        err = sht31_measure(sht31, SHT31_REPEAT_HIGH, &data);
+        esp_err_t err = sht31_measure(flexsense_sht31, SHT31_REPEAT_HIGH, &data);
         if (err == ESP_OK) {
             printf("温度: %.2f °C\n", data.temperature);
             printf("湿度: %.2f %%RH\n", data.humidity);
@@ -246,12 +242,10 @@ static int cmd_sht31(int argc, char **argv)
         }
 
     } else if (strcmp(sub, "status") == 0) {
-        /* 读取并解析状态寄存器各标志位 */
         uint16_t status;
-        err = sht31_read_status(sht31, &status);
+        esp_err_t err = sht31_read_status(flexsense_sht31, &status);
         if (err == ESP_OK) {
             printf("状态寄存器: 0x%04X\n", status);
-            /* 逐位解析（数据手册 Table 7） */
             printf("  写入校验:     %s\n", (status & (1 << 15)) ? "上次写入有误" : "正常");
             printf("  加热器:       %s\n", (status & (1 << 13)) ? "开启" : "关闭");
             printf("  湿度告警:     %s\n", (status & (1 << 11)) ? "触发" : "正常");
@@ -263,8 +257,7 @@ static int cmd_sht31(int argc, char **argv)
         }
 
     } else if (strcmp(sub, "clear") == 0) {
-        /* 清除状态寄存器中的可写位（复位标志、告警标志等） */
-        err = sht31_clear_status(sht31);
+        esp_err_t err = sht31_clear_status(flexsense_sht31);
         if (err == ESP_OK) {
             printf("状态寄存器已清除（可写位归零）\n");
         } else {
@@ -272,8 +265,7 @@ static int cmd_sht31(int argc, char **argv)
         }
 
     } else if (strcmp(sub, "reset") == 0) {
-        /* 软复位：传感器内部复位到上电默认状态 */
-        err = sht31_soft_reset(sht31);
+        esp_err_t err = sht31_soft_reset(flexsense_sht31);
         if (err == ESP_OK) {
             printf("SHT31 软复位完成\n");
         } else {
@@ -281,14 +273,12 @@ static int cmd_sht31(int argc, char **argv)
         }
 
     } else if (strcmp(sub, "heater") == 0) {
-        /* 加热器控制：防结露/除湿 */
         if (sht31_args.heater->count == 0) {
             printf("用法: sht31 heater <on|off>\n");
-            sht31_del(sht31);
             return 1;
         }
         bool on = strcmp(sht31_args.heater->sval[0], "on") == 0;
-        err = sht31_heater_set(sht31, on);
+        esp_err_t err = sht31_heater_set(flexsense_sht31, on);
         if (err == ESP_OK) {
             printf("加热器已%s\n", on ? "开启" : "关闭");
         } else {
@@ -296,14 +286,10 @@ static int cmd_sht31(int argc, char **argv)
         }
 
     } else {
-        /* 未知子命令 */
         printf("未知子命令: %s\n可用: read, status, clear, reset, heater\n", sub);
-        sht31_del(sht31);
         return 1;
     }
 
-    /* 销毁临时设备（不销毁 I2C 总线） */
-    sht31_del(sht31);
     return 0;
 }
 
@@ -322,6 +308,153 @@ static void register_sht31(void)
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd));
 }
 
+/* ===================================================================
+ *  fsr — FSR402 压敏电阻调试命令
+ * ===================================================================
+ * 用法:
+ *   fsr read              — 单次读取 FSR402
+ *   fsr read <n>          — 连续采样 n 次取平均
+ *   fsr config            — 查看当前配置
+ *   fsr config breadboard — 切换到面包板配置（10kΩ + 无运放）
+ *   fsr config pcb        — 切换到 PCB 配置（30kΩ + TLV521 运放）
+ *
+ * FSR402 句柄由 main.c 在启动时一次性初始化，调试命令直接复用。
+ * fsr config 命令可切换硬件配置（会重建句柄）。
+ * 连续调试时建议多采几次平均（如 fsr read 10）。
+ */
+
+/* 当前选中的配置（默认面包板，fsr config 命令可切换） */
+static const fsr402_config_t *fsr_current_cfg = &fsr402_breadboard_cfg;
+
+static struct {
+    struct arg_str *cmd;
+    struct arg_int *samples;
+    struct arg_str *cfg;
+    struct arg_end *end;
+} fsr_args;
+
+static int cmd_fsr(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&fsr_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, fsr_args.end, argv[0]);
+        return 1;
+    }
+
+    const char *sub = fsr_args.cmd->sval[0];
+
+    /* ---- fsr config [breadboard|pcb] — 切换配置（重建全局句柄） ---- */
+    if (strcmp(sub, "config") == 0) {
+        if (fsr_args.cfg->count > 0) {
+            const char *mode = fsr_args.cfg->sval[0];
+            const fsr402_config_t *new_cfg;
+
+            if (strcmp(mode, "breadboard") == 0) {
+                new_cfg = &fsr402_breadboard_cfg;
+            } else if (strcmp(mode, "pcb") == 0) {
+                new_cfg = &fsr402_pcb_cfg;
+            } else {
+                printf("未知配置: %s\n可用: breadboard, pcb\n", mode);
+                return 1;
+            }
+
+            /* 销毁旧句柄，用新配置重建 */
+            fsr402_deinit(flexsense_fsr);
+            flexsense_fsr = NULL;
+            esp_err_t err = fsr402_init(new_cfg, &flexsense_fsr);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "FSR402 重初始化失败: %s", esp_err_to_name(err));
+                return 1;
+            }
+            fsr_current_cfg = new_cfg;
+            printf("已切换至 %s (R_fixed = %" PRIu32 " Ω)\n",
+                   mode, fsr_current_cfg->r_fixed);
+
+        } else {
+            uint32_t r = fsr_current_cfg->r_fixed;
+            printf("--- FSR402 当前配置 ---\n");
+            printf("  分压电阻: %" PRIu32 " Ω\n", r);
+            printf("  运放:     %s\n", (r == 10000) ? "无" : "TLV521");
+            printf("  硬件:     %s\n", (r == 10000) ? "面包板" : "PCB");
+        }
+        return 0;
+    }
+
+    /* ---- fsr read [samples] — 读取 FSR402 ---- */
+
+    /* 检查全局句柄 */
+    if (flexsense_fsr == NULL) {
+        ESP_LOGE(TAG, "FSR402 未初始化（main.c 中初始化失败）");
+        return 1;
+    }
+
+    int samples = 1;
+    if (fsr_args.samples->count > 0) {
+        samples = fsr_args.samples->ival[0];
+        if (samples < 1) samples = 1;
+        if (samples > 100) samples = 100;
+    }
+
+    fsr402_data_t data;
+    esp_err_t err;
+    if (samples > 1) {
+        err = fsr402_read_avg(flexsense_fsr, samples, &data);
+    } else {
+        err = fsr402_read(flexsense_fsr, &data);
+    }
+
+    if (err == ESP_OK) {
+        printf("--- FSR402 读数 [%s] ---\n",
+               (fsr_current_cfg->r_fixed == 10000) ? "面包板" : "PCB");
+        printf("  GPIO10(ADC1_CH9)");
+        if (data.calibrated) printf(" [已校准]");
+        else                 printf(" [未校准，线性估算]");
+        printf("\n");
+        printf("  ADC 原始值:    %d (0~4095)\n", data.adc_raw);
+        printf("  中点电压:      %d mV\n", data.voltage_mv);
+        printf("  FSR 电阻:      ");
+        if (data.resistance == UINT32_MAX) {
+            printf("开路 (>10 MΩ)\n");
+        } else if (data.resistance > 1000000) {
+            printf("%.2f MΩ\n", data.resistance / 1e6f);
+        } else if (data.resistance >= 1000) {
+            printf("%.2f kΩ\n", data.resistance / 1e3f);
+        } else {
+            printf("%" PRIu32 " Ω\n", data.resistance);
+        }
+        printf("  估算压力:      %.3f N", data.force_n);
+        if (data.is_pressed) {
+            printf(" [已检测到按压]");
+        } else {
+            printf(" [无按压]");
+        }
+        printf("\n");
+        if (samples > 1) {
+            printf("  (采样次数: %d 次取平均)\n", samples);
+        }
+    } else {
+        ESP_LOGE(TAG, "读取 FSR402 失败: %s", esp_err_to_name(err));
+    }
+
+    return 0;
+}
+
+static void register_fsr(void)
+{
+    fsr_args.cmd     = arg_str1(NULL, NULL, "<read|config>", "子命令: read 或 config");
+    fsr_args.samples = arg_int0("n", NULL, "<1-100>", "采样次数 (仅 read 子命令，默认 1)");
+    fsr_args.cfg     = arg_str0(NULL, NULL, "<breadboard|pcb>", "配置模式 (仅 config 子命令)");
+    fsr_args.end     = arg_end(3);
+    const esp_console_cmd_t cmd = {
+        .command = "fsr",
+        .help = "FSR402 压敏电阻调试",
+        .hint = "<read [n]|config [breadboard|pcb]>",
+        .func = &cmd_fsr,
+        .argtable = &fsr_args,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd));
+}
+
 /* ========== 注册所有 FlexSense 命令 ========== */
 void register_flexsense(void)
 {
@@ -329,5 +462,5 @@ void register_flexsense(void)
     register_i2c_scan();
     register_adc();
     register_sht31();
-    /* TODO: fsr — 待 FSR402 驱动就绪后添加 */
+    register_fsr();
 }
