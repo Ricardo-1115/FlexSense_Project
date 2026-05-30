@@ -83,28 +83,14 @@ static uint8_t crc8(const uint8_t *data, size_t len)
  *  底层 I2C 通信辅助函数
  * =================================================================== */
 
-/**
- * @brief 仅发送一条 16 位命令给传感器（无后续读取）。
- *
- * 适用于软复位、清除状态、加热器控制等只需写不需读的操作。
- */
+/* 发送 16 位命令（无读取），用于复位/状态/加热器等只写操作 */
 static esp_err_t write_cmd(sht31_handle_ptr_t h, uint16_t cmd)
 {
     const uint8_t buf[] = { CMD(cmd) };
     return i2c_master_transmit(h->i2c_dev, buf, sizeof(buf), -1);
 }
 
-/**
- * @brief 发送命令后立即读取传感器返回的数据。
- *
- * 适用于测量（发命令 → 读 6 字节结果）和读状态寄存器。
- * 内部使用 I2C 重复起始条件（RESTART），不产生 STOP。
- *
- * @param h     设备句柄
- * @param cmd   16 位命令
- * @param data  接收缓冲区
- * @param len   期望读取的字节数
- */
+/* 发送命令并读取响应（I2C RESTART，不产生 STOP） */
 static esp_err_t write_cmd_read(sht31_handle_ptr_t h, uint16_t cmd,
                                 uint8_t *data, size_t len)
 {
@@ -113,13 +99,7 @@ static esp_err_t write_cmd_read(sht31_handle_ptr_t h, uint16_t cmd,
                                        data, len, -1);
 }
 
-/**
- * @brief 检查缓冲区中的每段 CRC（每 2 字节 + 1 字节 CRC 为一组）。
- *
- * 测量返回的 6 字节中共有 2 组 CRC：
- *   [温度高位, 温度低位, CRC1] ← 校验温度
- *   [湿度高位, 湿度低位, CRC2] ← 校验湿度
- */
+/* 逐组校验 CRC（每 2 字节数据 + 1 字节 CRC），测量结果含 2 组 */
 static esp_err_t check_crcs(const uint8_t *raw, size_t len)
 {
     for (size_t i = 0; i < len; i += 3) {

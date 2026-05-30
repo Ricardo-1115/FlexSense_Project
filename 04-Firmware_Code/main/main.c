@@ -116,9 +116,3 @@ void app_main(void)
 
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
 }
-/*
-After sending a command to the sensor a minimal
-waiting time of 1ms is needed before another command
-can be received by the sensor.
-
-*/

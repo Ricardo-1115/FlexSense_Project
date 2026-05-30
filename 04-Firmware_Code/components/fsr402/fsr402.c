@@ -180,13 +180,7 @@ esp_err_t fsr402_deinit(fsr402_handle_ptr_t handle)
  *  数据转换（内部函数）
  * =================================================================== */
 
-/**
- * raw_to_voltage — 把 ADC 读数变成电压
- *
- * 两个路径：
- *   ① 有 eFuse 校准 → 用 ESP-IDF 的校准函数 (最准)
- *   ② 无校准 → 线性估算: V = raw × V_ref / 4095 (够用)
- */
+/* ADC 原始值 → 电压：优先用 eFuse 校准，否则线性估算 */
 static int raw_to_voltage(fsr402_handle_ptr_t h, int raw)
 {
     if (h->calibrated) {
@@ -202,15 +196,7 @@ static int raw_to_voltage(fsr402_handle_ptr_t h, int raw)
     return (int)((uint64_t)raw * h->config.v_ref_mv / max_raw);
 }
 
-/**
- * voltage_to_resistance — 从分压中点电压反推 FSR402 电阻
- *
- *   分压公式:  Vout = Vcc × R_fixed / (R_fsr + R_fixed)
- *   变形:       R_fsr = R_fixed × (Vcc − Vout) / Vout
- *
- *   无压力时 Vout ≈ 0V → 返回 UINT32_MAX（开路）
- *   压力极大时 Vout ≈ Vcc → 返回 0（短路）
- */
+/* 分压公式反推 FSR402 电阻：Vout → R_fsr = R_fixed × (Vcc − Vout) / Vout */
 static uint32_t voltage_to_resistance(const fsr402_config_t *cfg, int voltage_mv)
 {
     if (voltage_mv <= 0) {
@@ -224,15 +210,7 @@ static uint32_t voltage_to_resistance(const fsr402_config_t *cfg, int voltage_mv
     return (uint32_t)(num / voltage_mv);
 }
 
-/**
- * resistance_to_force — 从 FSR 电阻估算压力
- *
- *   FSR402 的典型特性：电导 1/R 与压力 F 近似成正比（log-log 斜率 ≈ 1）
- *   模型: F = force_k / R
- *
- *   如果 R 接近开路 (> 1MΩ) 或等于 0，直接返回 0（无有效压力）
- *   默认 force_k = 5000，即 R = 5kΩ 时 F ≈ 1N
- */
+/* FSR 电阻 → 压力：F = force_k / R（电导与压力近似成正比） */
 static float resistance_to_force(const fsr402_config_t *cfg, uint32_t resistance)
 {
     if (resistance == 0 || resistance >= 1000000) {
