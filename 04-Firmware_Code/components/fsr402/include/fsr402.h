@@ -27,6 +27,7 @@
 #include <stdbool.h>
 #include "esp_err.h"
 #include "hal/adc_types.h"
+#include "esp_adc/adc_oneshot.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -100,6 +101,8 @@ esp_err_t fsr402_read(fsr402_handle_ptr_t handle, fsr402_data_t *out);
  * @return ESP_OK 成功
  */
 esp_err_t fsr402_read_avg(fsr402_handle_ptr_t handle, int samples, fsr402_data_t *out);
+
+adc_oneshot_unit_handle_t fsr402_get_adc_handle(fsr402_handle_ptr_t handle);
 
 #ifdef __cplusplus
 }

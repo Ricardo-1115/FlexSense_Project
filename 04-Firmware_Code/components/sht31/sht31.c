@@ -19,6 +19,9 @@
 
 static const char *TAG = "sht31";
 
+/* 单实例，静态分配 */
+static sht31_handle_t s_sht31 = {0};
+
 /* ===================================================================
  *  命令构造宏
  * ===================================================================
@@ -120,25 +123,23 @@ static esp_err_t check_crcs(const uint8_t *raw, size_t len)
 esp_err_t sht31_new(i2c_master_bus_handle_t bus_handle, uint8_t addr,
                     uint32_t scl_speed, sht31_handle_ptr_t *out_handle)
 {
-    esp_err_t ret;
-    sht31_handle_ptr_t h = calloc(1, sizeof(*h));
-    ESP_RETURN_ON_FALSE(h, ESP_ERR_NO_MEM, TAG, "内存不足，无法分配设备句柄");
+    ESP_RETURN_ON_FALSE(bus_handle && out_handle, ESP_ERR_INVALID_ARG, TAG, "参数不能为空");
+    ESP_RETURN_ON_FALSE(!s_sht31.i2c_dev, ESP_ERR_INVALID_STATE, TAG, "重复初始化");
 
-    /* 配置 I2C 设备参数 */
+    memset(&s_sht31, 0, sizeof(s_sht31));
+
     i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,   /* SHT31 使用 7 位地址 */
-        .device_address  = addr,                  /* 用户传入的地址（0x44 或 0x45） */
-        .scl_speed_hz    = scl_speed,             /* I2C 时钟频率 */
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = addr,
+        .scl_speed_hz    = scl_speed,
     };
 
-    /* 将设备挂载到 I2C 总线上 */
-    ret = i2c_master_bus_add_device(bus_handle, &dev_cfg, &h->i2c_dev);
+    esp_err_t ret = i2c_master_bus_add_device(bus_handle, &dev_cfg, &s_sht31.i2c_dev);
     if (ret != ESP_OK) {
-        free(h);
         return ret;
     }
 
-    *out_handle = h;
+    *out_handle = &s_sht31;
     return ESP_OK;
 }
 
@@ -146,9 +147,8 @@ esp_err_t sht31_del(sht31_handle_ptr_t handle)
 {
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "传入的句柄为空");
 
-    /* 从 I2C 总线移除设备，然后释放内存 */
     esp_err_t ret = i2c_master_bus_rm_device(handle->i2c_dev);
-    free(handle);
+    memset(handle, 0, sizeof(*handle));
     return ret;
 }
 

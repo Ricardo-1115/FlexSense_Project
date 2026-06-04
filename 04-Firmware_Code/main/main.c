@@ -18,6 +18,7 @@
 #include "driver/gpio.h"
 #include "cmd_system.h"
 #include "cmd_nvs.h"
+#include "battery.h"
 #include "cmd_flexsense.h"
 #include "fsr402.h"
 #include "sht31.h"
@@ -66,14 +67,13 @@ void app_main(void)
     ESP_LOGI(TAG, "I2C 总线已初始化 (SDA=GPIO38, SCL=GPIO39)");
 
     /* ── 压力传感器 FSR402 (ADC1_CH9 / GPIO10, 10kΩ 分压) ── */
-    ESP_ERROR_CHECK(fsr402_init(&fsr402_breadboard_cfg, &flexsense_fsr));
+    ESP_ERROR_CHECK(fsr402_init(&fsr402_pcb_cfg, &flexsense_fsr));
     ESP_LOGI(TAG, "FSR402 已初始化 (GPIO10/ADC1_CH9, %"PRIu32"kΩ 分压)",
-             fsr402_breadboard_cfg.r_fixed / 1000);
+             fsr402_pcb_cfg.r_fixed / 1000);
 
     /* ── 温湿度传感器 SHT31 (I2C 地址 0x44, 100kHz) ── */
     ESP_ERROR_CHECK(sht31_new(flexsense_i2c_bus, SHT31_ADDR_0, 100000, &flexsense_sht31));
-    /* 初始化后立刻做一次测量（失败自动重试），排除传感器刚上电的不稳定期。
-       这样 REPL 启动后用户第一次读 SHT31 就不会超时了。 */
+    /* 初始化后立刻做一次测量（失败自动重试），排除传感器刚上电的不稳定期。*/
     for (int i = 0; i < 3; i++) {
         sht31_data_t _d;
         if (sht31_measure(flexsense_sht31, SHT31_REPEAT_HIGH, &_d) == ESP_OK) {
@@ -84,6 +84,9 @@ void app_main(void)
         ESP_LOGW(TAG, "SHT31 通信超时，重试 %d/3...", i + 1);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
+
+    /* ── 电池电压监测 (ADC1_CH8/GPIO9, 100k+100k 分压) ── */
+    battery_init(fsr402_get_adc_handle(flexsense_fsr));
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
@@ -115,4 +118,9 @@ void app_main(void)
     ESP_LOGI(TAG, "FlexSense v1.0 — 调试控制台就绪。输入 'help' 查看可用命令。");
 
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
+
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        // ESP_LOGI(TAG, "Battery: %"PRIu32" mV", battery_get_voltage_mv());
+    }
 }

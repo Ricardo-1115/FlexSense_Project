@@ -10,7 +10,6 @@
 #include "argtable3/argtable3.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
-#include "esp_adc/adc_oneshot.h"
 #include "sht31.h"
 #include "fsr402.h"
 
@@ -25,7 +24,7 @@ sht31_handle_ptr_t      flexsense_sht31    = NULL;
 static struct {
     struct arg_int *pin;
     struct arg_int *set;
-    struct arg_int *get;
+    struct arg_lit *get;
     struct arg_end *end;
 } gpio_args;
 
@@ -39,7 +38,7 @@ static int cmd_gpio(int argc, char **argv)
 
     int pin = gpio_args.pin->ival[0];
 
-    if (gpio_args.get->count > 0 && gpio_args.get->ival[0]) {
+    if (gpio_args.get->count > 0) {
         gpio_set_direction(pin, GPIO_MODE_INPUT);
         int level = gpio_get_level(pin);
         printf("GPIO%d = %d\n", pin, level);
@@ -61,12 +60,12 @@ static void register_gpio(void)
 {
     gpio_args.pin = arg_int1(NULL, NULL, "<pin>", "GPIO 编号");
     gpio_args.set = arg_int0(NULL, "set", "<0|1>", "设置 GPIO 电平");
-    gpio_args.get = arg_int0(NULL, "get", NULL, "读取 GPIO 电平");
+    gpio_args.get = arg_lit0(NULL, "get", "读取 GPIO 电平");
     gpio_args.end = arg_end(2);
     const esp_console_cmd_t cmd = {
         .command = "gpio",
         .help = "GPIO 读写调试",
-        .hint = "<pin> [--set <0|1> | --get 1]",
+        .hint = "<pin> [--set <0|1> | --get]",
         .func = &cmd_gpio,
         .argtable = &gpio_args,
     };
@@ -129,60 +128,6 @@ static void register_i2c_scan(void)
         .help = "扫描 I2C 总线设备地址",
         .hint = NULL,
         .func = &cmd_i2c_scan,
-    };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&cmd));
-}
-
-/* ========== adc <channel> — 读取 ADC 原始值 ========== */
-static struct {
-    struct arg_int *channel;
-    struct arg_end *end;
-} adc_args;
-
-static int cmd_adc(int argc, char **argv)
-{
-    int nerrors = arg_parse(argc, argv, (void **)&adc_args);
-    if (nerrors != 0) {
-        arg_print_errors(stderr, adc_args.end, argv[0]);
-        return 1;
-    }
-
-    int ch = adc_args.channel->ival[0];
-    if (ch < 0 || ch > 9) {
-        printf("通道号需在 0-9 范围内\n");
-        return 1;
-    }
-
-    adc_oneshot_unit_handle_t adc_handle;
-    adc_oneshot_unit_init_cfg_t unit_cfg = {
-        .unit_id = ADC_UNIT_1,
-    };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &adc_handle));
-
-    adc_oneshot_chan_cfg_t chan_cfg = {
-        .atten = ADC_ATTEN_DB_12,
-        .bitwidth = ADC_BITWIDTH_DEFAULT,
-    };
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, ch, &chan_cfg));
-
-    int raw;
-    ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, ch, &raw));
-    printf("ADC1_CH%d = %d (raw, 12-bit)\n", ch, raw);
-
-    ESP_ERROR_CHECK(adc_oneshot_del_unit(adc_handle));
-    return 0;
-}
-
-static void register_adc(void)
-{
-    adc_args.channel = arg_int1(NULL, NULL, "<channel>", "ADC 通道号 (0-9)");
-    adc_args.end = arg_end(1);
-    const esp_console_cmd_t cmd = {
-        .command = "adc",
-        .help = "读取 ADC1 通道原始值",
-        .hint = "<0-9>",
-        .func = &cmd_adc,
-        .argtable = &adc_args,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd));
 }
@@ -323,8 +268,8 @@ static void register_sht31(void)
  * 连续调试时建议多采几次平均（如 fsr read 10）。
  */
 
-/* 当前选中的配置（默认面包板，fsr config 命令可切换） */
-static const fsr402_config_t *fsr_current_cfg = &fsr402_breadboard_cfg;
+/* 当前选中的配置 */
+static const fsr402_config_t *fsr_current_cfg = &fsr402_pcb_cfg;
 
 static struct {
     struct arg_str *cmd;
@@ -460,7 +405,6 @@ void register_flexsense(void)
 {
     register_gpio();
     register_i2c_scan();
-    register_adc();
     register_sht31();
     register_fsr();
 }
