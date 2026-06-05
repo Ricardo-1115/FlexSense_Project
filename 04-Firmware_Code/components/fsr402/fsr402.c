@@ -36,8 +36,6 @@ static struct fsr402_handle_t s_fsr = {0};
 /* ===================================================================
  *  ADC 校准初始化
  * ===================================================================
- * ESP32-S3 仅支持 Curve Fitting（V1），基于 eFuse 内参考电压校准。
- * 若 eFuse 为空（工程样片），返回 false，外部使用线性估算。
  */
 
 static bool adc_calibration_init(adc_unit_t unit, adc_channel_t channel,

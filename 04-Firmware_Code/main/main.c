@@ -20,6 +20,7 @@
 #include "cmd_nvs.h"
 #include "battery.h"
 #include "cmd_flexsense.h"
+#include "ble_flexsense.h"
 #include "fsr402.h"
 #include "sht31.h"
 
@@ -87,6 +88,9 @@ void app_main(void)
 
     /* ── 电池电压监测 (ADC1_CH8/GPIO9, 100k+100k 分压) ── */
     battery_init(fsr402_get_adc_handle(flexsense_fsr));
+
+    /* ── BLE 初始化 ── */
+    ESP_ERROR_CHECK(ble_flexsense_init());
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();

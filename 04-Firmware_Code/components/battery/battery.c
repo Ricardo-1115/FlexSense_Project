@@ -26,7 +26,7 @@
 /* ------------------------------------------------------------------ */
 /*  Module state                                                      */
 /* ------------------------------------------------------------------ */
-static const char *TAG = "Battery";
+static const char *TAG = "battery";
 
 static adc_oneshot_unit_handle_t s_adc_handle = NULL;
 static adc_cali_handle_t        s_cali_handle = NULL;
