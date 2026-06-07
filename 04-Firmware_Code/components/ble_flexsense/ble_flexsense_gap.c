@@ -5,12 +5,14 @@
 #include "services/gap/ble_svc_gap.h"
 #include "ble_flexsense.h"
 #include "ble_flexsense_gap.h"
+#include "ble_flexsense_svc.h"
 
 static const char *TAG = "ble_flexsense";
 
 /* ── 连接与订阅状态（svc 模块需要读取） ── */
 uint16_t g_flex_conn_handle = 0;
 bool     g_flex_notify_enabled = false;
+bool     g_flex_notify_fsr_enabled = false;
 
 /* ── GAP 事件 ── */
 static int flex_gap_event(struct ble_gap_event *event, void *arg)
@@ -31,13 +33,21 @@ static int flex_gap_event(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "disconnected reason=%d", event->disconnect.reason);
         g_flex_conn_handle = 0;
         g_flex_notify_enabled = false;
+        g_flex_notify_fsr_enabled = false;
         adv_init();
         return 0;
 
-    case BLE_GAP_EVENT_SUBSCRIBE:
-        g_flex_notify_enabled = event->subscribe.cur_notify;
-        ESP_LOGI(TAG, "subscribe notify=%d", g_flex_notify_enabled);
+    case BLE_GAP_EVENT_SUBSCRIBE: {
+        bool sub = event->subscribe.cur_notify;
+        if (event->subscribe.attr_handle == g_flex_chr_data_handle) {
+            g_flex_notify_enabled = sub;
+            ESP_LOGI(TAG, "data subscribe notify=%d", sub);
+        } else if (event->subscribe.attr_handle == g_flex_chr_fsr_handle) {
+            g_flex_notify_fsr_enabled = sub;
+            ESP_LOGI(TAG, "fsr subscribe notify=%d", sub);
+        }
         return 0;
+    }
 
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "mtu=%d", event->mtu.value);

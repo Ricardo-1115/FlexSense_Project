@@ -57,7 +57,7 @@ esp_err_t ble_flexsense_init(void)
         ESP_LOGE(TAG, "flex_svc_init failed: %d", rc);
         return ESP_FAIL;
     }
-    flex_svc_start_notify_task();
+    flex_svc_start_tasks();
 
     nimble_port_freertos_init(flex_host_task);
 
