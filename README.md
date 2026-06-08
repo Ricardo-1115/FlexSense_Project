@@ -1,9 +1,11 @@
 # FlexSense — 柔性传感器物联网节点
 
-![Status](https://img.shields.io/badge/Status-Development-green)
+![Status](https://img.shields.io/badge/Status-Completed-green)
 ![Platform](https://img.shields.io/badge/Platform-ESP--IDF-blue)
 
 面向柔性可穿戴电子研发的物联网边缘节点。系统需实现形变压力与环境温湿度的定时采集、低功耗管理及无线稳定传输。
+
+![FlexSense App 截图](03-Hardware_EDA/flexsense_app_photo.jpg)
 
 ## 项目背景与技术选型思路
 
@@ -50,7 +52,7 @@
 
 ![PCBA Rev1.0](03-Hardware_EDA/PCBA_Photos/PCBA_Rev1.0.jpg)
 
-SHT31、FSR402 驱动调试正常，锂电池充放电及电压采集均正常。当前进度：调试蓝牙驱动。
+SHT31、FSR402 驱动调试正常，锂电池充放电及电压采集均正常。BLE 双特征通道（温湿度 1s / FSR 100ms）推送稳定，Flutter App 全功能就绪。剩余待完善：低功耗管理（电池 < 3.4V 时进入低功耗模式并通知 App）。
 
 ### 硬件选型汇总
 
