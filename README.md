@@ -52,7 +52,9 @@
 
 ![PCBA Rev1.0](03-Hardware_EDA/PCBA_Photos/PCBA_Rev1.0.jpg)
 
-SHT31、FSR402 驱动调试正常，锂电池充放电及电压采集均正常。BLE 双特征通道（温湿度 1s / FSR 100ms）推送稳定，Flutter App 全功能就绪。剩余待完善：低功耗管理（电池 < 3.4V 时进入低功耗模式并通知 App）。
+SHT31、FSR402 驱动调试正常，锂电池充放电及电压采集均正常。BLE 双特征通道（温湿度 1s / FSR 100ms）推送稳定，Flutter App 全功能就绪。
+
+低功耗管理已完整实现：电池电压 < 3300mV 时自动进入 Deep Sleep（30s 周期），唤醒后检测电压 < 3500mV 则继续睡眠；进入低功耗前通过 BLE data packet flags 通知 App 端显示低功耗警告横幅。
 
 ### 硬件选型汇总
 

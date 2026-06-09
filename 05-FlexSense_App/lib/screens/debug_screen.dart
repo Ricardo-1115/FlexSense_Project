@@ -102,14 +102,14 @@ class _DebugScreenState extends State<DebugScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('数据包格式 (8 字节)',
+              Text('数据包格式',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
               const SizedBox(height: 4),
               Text(
                 'Service: b6b6ffff-9cf3-4a52-9f7b-6eb7b6cbf6b3\n'
-                '0xFF01:  b6b6ff01-...  Temp+Hum+Bat  (1s notify)\n'
-                '0xFF02:  b6b6ff02-...  FSR pressure   (100ms notify)\n'
-                '0xFF01 包 (6字节): T(int16×100) + RH(uint16×10) + Bat(uint16)\n'
+                '0xFF01:  b6b6ff01-...  Temp+Hum+Bat+Flags  (1s notify)\n'
+                '0xFF02:  b6b6ff02-...  FSR pressure        (100ms notify)\n'
+                '0xFF01 包 (7字节): T(int16×100) + RH(uint16×10) + Bat(uint16) + Flags(uint8)\n'
                 '0xFF02 包 (2字节): FSR_raw(uint16)',
                 style: TextStyle(fontSize: 11, fontFamily: 'monospace',
                     color: theme.colorScheme.outline),
@@ -157,7 +157,7 @@ class _DebugScreenState extends State<DebugScreen>
                               'FSR=${d.fsrRaw}(${d.isPressed ? "按压" : "无"})  '
                               'F=${d.forceN.toStringAsFixed(3)}N  '
                               'T=${d.temperature.toStringAsFixed(1)}°C  '
-                              'RH=${d.humidity.toStringAsFixed(1)}%%  '
+                              'RH=${d.humidity.toStringAsFixed(1)}%  '
                               'Bat=${d.batteryMv}mV',
                               style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
                             ),

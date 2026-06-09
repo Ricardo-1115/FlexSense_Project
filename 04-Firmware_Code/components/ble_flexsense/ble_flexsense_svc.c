@@ -19,8 +19,7 @@ static const char *TAG = "ble_flexsense";
  * b6b6xxxx-9cf3-4a52-9f7b-6eb7b6cbf6b3
  */
 static const ble_uuid128_t flex_svc_uuid =
-    BLE_UUID128_INIT(0xb3, 0xf6, 0xcb, 0xb6, 0xb7, 0x6e, 0x7b, 0x9f,
-                     0x52, 0x4a, 0xf3, 0x9c, 0xff, 0xff, 0xb6, 0xb6);
+    BLE_UUID128_INIT(FLEX_SVC_UUID128_BYTES);
 
 /* 0xFF01: 温湿度+电池 */
 static const ble_uuid128_t flex_chr_data_uuid =
@@ -36,7 +35,10 @@ static const ble_uuid128_t flex_chr_fsr_uuid =
 uint16_t g_flex_chr_data_handle;
 uint16_t g_flex_chr_fsr_handle;
 
-/* ── GATT 访问回调: 0xFF01 (温湿度+电池) ── */
+/* 低功耗标志 — 由 flex_svc_set_low_power() 设置，通知时携带 */
+static bool s_low_power = false;
+
+/* ── GATT 访问回调: 0xFF01 (温湿度+电池+状态) ── */
 static int flex_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                            struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
@@ -51,6 +53,7 @@ static int flex_chr_access(uint16_t conn_handle, uint16_t attr_handle,
             }
         }
         pkt.battery_mv = (uint16_t)battery_get_voltage_mv();
+        pkt.flags       = s_low_power ? FLEX_FLAG_LOW_POWER : 0;
 
         int rc = os_mbuf_append(ctxt->om, &pkt, sizeof(pkt));
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -116,7 +119,7 @@ esp_err_t flex_svc_init(void)
     return ESP_OK;
 }
 
-/* ── 发送通知: 0xFF01 温湿度+电池 (1s) ── */
+/* ── 发送通知: 0xFF01 温湿度+电池+状态 (1s) ── */
 void flex_svc_notify_all(void)
 {
     if (g_flex_conn_handle == 0 || !g_flex_notify_enabled) return;
@@ -135,6 +138,9 @@ void flex_svc_notify_all(void)
 
     /* 电池 */
     pkt.battery_mv = (uint16_t)battery_get_voltage_mv();
+
+    /* 状态标志 */
+    pkt.flags = s_low_power ? FLEX_FLAG_LOW_POWER : 0;
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(&pkt, sizeof(pkt));
     if (!om) return;
@@ -166,6 +172,12 @@ void flex_svc_notify_fsr(void)
     if (rc != 0) {
         ESP_LOGW(TAG, "fsr notify fail rc=%d", rc);
     }
+}
+
+/* ── 设置低功耗标志（由电源管理任务调用） ── */
+void flex_svc_set_low_power(bool enable)
+{
+    s_low_power = enable;
 }
 
 /* ── 后台任务 ── */

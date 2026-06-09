@@ -11,6 +11,7 @@
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_console.h"
+#include "esp_sleep.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "soc/soc_caps.h"
@@ -21,17 +22,68 @@
 #include "battery.h"
 #include "cmd_flexsense.h"
 #include "ble_flexsense.h"
+#include "ble_flexsense_svc.h"
 #include "fsr402.h"
 #include "sht31.h"
 
 static const char *TAG = "FlexSense";
 #define PROMPT_STR "FlexSense"
 
+/* ── 低功耗阈值（与 LDO / ESP32-S3 / LiPo 匹配） ── */
+#define PM_CHECK_INTERVAL_MS    2000        /* 电源管理检测周期 */
+#define DEEP_SLEEP_SEC          30          /* 每次 deep sleep 时长 */
+#define LOW_BATT_ENTER_MV       3300        /* ≤ 此值进入低功耗 */
+#define LOW_BATT_EXIT_MV        3500        /* ≥ 此值退出低功耗 */
+
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
 #if !CONFIG_ESP_CONSOLE_SECONDARY_NONE
 #warning "A secondary serial console is not useful when using the console component. Please disable it in menuconfig."
 #endif
 #endif
+
+/* ── 电源管理任务：监测电池，低于阈值则进入 Deep Sleep ── */
+static void power_mgmt_task(void *arg)
+{
+    /* 用前几次检测稳定 ADC 滤波，避免刚启动时误判 */
+    vTaskDelay(pdMS_TO_TICKS(PM_CHECK_INTERVAL_MS));
+
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(PM_CHECK_INTERVAL_MS));
+
+        uint32_t mv = battery_get_voltage_mv();
+        if (mv == 0) continue; /* 滤波尚未就绪 */
+
+        if (mv < LOW_BATT_ENTER_MV) {
+            ESP_LOGI(TAG, "[PM] 电池 %" PRIu32 "mV < %dmV，进入低功耗模式", mv, LOW_BATT_ENTER_MV);
+
+            /* 设置标志，下次 BLE 通知 (1s 内) 会携带给 App */
+            flex_svc_set_low_power(true);
+
+            /* 等待至少一次 BLE 通知发出 */
+            vTaskDelay(pdMS_TO_TICKS(1500));
+
+            ESP_LOGI(TAG, "[PM] 进入 Deep Sleep %ds", DEEP_SLEEP_SEC);
+            esp_sleep_enable_timer_wakeup((uint64_t)DEEP_SLEEP_SEC * 1000000ULL);
+            esp_deep_sleep_start();
+        }
+    }
+}
+
+/* ── 唤醒后检查电池，低于恢复阈值则继续睡 ── */
+static void check_battery_on_wakeup(void)
+{
+    /* battery_init 已同步完成 8-tap 滤波填充，直接读即可 */
+    uint32_t mv = battery_get_voltage_mv();
+
+    if (mv < LOW_BATT_EXIT_MV) {
+        ESP_LOGI(TAG, "[PM] 唤醒后电池 %" PRIu32 "mV < %dmV，继续睡眠 %ds",
+                 mv, LOW_BATT_EXIT_MV, DEEP_SLEEP_SEC);
+        esp_sleep_enable_timer_wakeup((uint64_t)DEEP_SLEEP_SEC * 1000000ULL);
+        esp_deep_sleep_start();
+    }
+
+    ESP_LOGI(TAG, "[PM] 电池 %" PRIu32 "mV >= %dmV，恢复运行", mv, LOW_BATT_EXIT_MV);
+}
 
 static void initialize_nvs(void)
 {
@@ -67,14 +119,19 @@ void app_main(void)
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &flexsense_i2c_bus));
     ESP_LOGI(TAG, "I2C 总线已初始化 (SDA=GPIO38, SCL=GPIO39)");
 
-    /* ── 压力传感器 FSR402 (ADC1_CH9 / GPIO10, 10kΩ 分压) ── */
+    /* ── 压力传感器 FSR402 (ADC1_CH9 / GPIO10, 30kΩ 分压 + TLV521) ── */
     ESP_ERROR_CHECK(fsr402_init(&fsr402_pcb_cfg, &flexsense_fsr));
     ESP_LOGI(TAG, "FSR402 已初始化 (GPIO10/ADC1_CH9, %"PRIu32"kΩ 分压)",
              fsr402_pcb_cfg.r_fixed / 1000);
 
+    /* ── 电池电压监测 (ADC1_CH8/GPIO9, 100k+100k 分压) ── */
+    battery_init(fsr402_get_adc_handle(flexsense_fsr));
+
+    /* ── 唤醒后检查电池；仍低则继续 Deep Sleep ── */
+    check_battery_on_wakeup();
+
     /* ── 温湿度传感器 SHT31 (I2C 地址 0x44, 100kHz) ── */
     ESP_ERROR_CHECK(sht31_new(flexsense_i2c_bus, SHT31_ADDR_0, 100000, &flexsense_sht31));
-    /* 初始化后立刻做一次测量（失败自动重试），排除传感器刚上电的不稳定期。*/
     for (int i = 0; i < 3; i++) {
         sht31_data_t _d;
         if (sht31_measure(flexsense_sht31, SHT31_REPEAT_HIGH, &_d) == ESP_OK) {
@@ -86,11 +143,11 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    /* ── 电池电压监测 (ADC1_CH8/GPIO9, 100k+100k 分压) ── */
-    battery_init(fsr402_get_adc_handle(flexsense_fsr));
-
     /* ── BLE 初始化 ── */
     ESP_ERROR_CHECK(ble_flexsense_init());
+
+    /* ── 启动电源管理任务 ── */
+    xTaskCreatePinnedToCore(power_mgmt_task, "pm", 2048, NULL, 3, NULL, 1);
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();

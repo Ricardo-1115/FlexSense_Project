@@ -96,12 +96,6 @@ static void sample_battery(void)
 /* ------------------------------------------------------------------ */
 static void battery_task(void *arg)
 {
-    /* Prime filter buffer */
-    for (int i = 0; i < FILTER_TAP_NUM; i++) {
-        sample_battery();
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
         sample_battery();
@@ -126,6 +120,11 @@ void battery_init(adc_oneshot_unit_handle_t adc_handle)
     memset(s_filter_buf, 0, sizeof(s_filter_buf));
     s_filter_idx = 0;
     s_voltage_mv = 0;
+
+    /* 同步填充滤波环形缓冲区：确保 battery_get_voltage_mv() 即刻返回有效值 */
+    for (int i = 0; i < FILTER_TAP_NUM; i++) {
+        sample_battery();
+    }
 
     xTaskCreatePinnedToCore(battery_task, "battery", 2048, NULL, 5, NULL, 1);
 

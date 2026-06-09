@@ -148,6 +148,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _ConnectionBanner(connected: _connected),
               const SizedBox(height: 8),
 
+              // ── 低功耗模式警告 ──
+              if (_latest != null && _latest!.lowPower)
+                _LowPowerBanner(),
+              if (_latest != null && _latest!.lowPower)
+                const SizedBox(height: 8),
+
               // ── 概览磁贴 ──
               if (_latest != null) ...[
                 _SummaryRow(latest: _latest!),
@@ -269,6 +275,39 @@ class _ConnectionBanner extends StatelessWidget {
                 Text('实时', style: TextStyle(fontSize: 12)),
               ],
             ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 低功耗模式警告横幅 ──
+class _LowPowerBanner extends StatelessWidget {
+  const _LowPowerBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade100,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange.shade400),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.power_off, size: 18, color: Colors.orange.shade800),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '低功耗模式 — 电池电量低，设备已进入睡眠',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.orange.shade900,
+              ),
+            ),
+          ),
         ],
       ),
     );
