@@ -33,7 +33,7 @@ static const char *TAG = "FlexSense";
 #define PM_CHECK_INTERVAL_MS    2000        /* 电源管理检测周期 */
 #define DEEP_SLEEP_SEC          30          /* 每次 deep sleep 时长 */
 #define LOW_BATT_ENTER_MV       3300        /* ≤ 此值进入低功耗 */
-#define LOW_BATT_EXIT_MV        3500        /* ≥ 此值退出低功耗 */
+#define LOW_BATT_EXIT_MV        3300        /* ≥ 此值退出低功耗 */
 
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
 #if !CONFIG_ESP_CONSOLE_SECONDARY_NONE
@@ -44,14 +44,14 @@ static const char *TAG = "FlexSense";
 /* ── 电源管理任务：监测电池，低于阈值则进入 Deep Sleep ── */
 static void power_mgmt_task(void *arg)
 {
-    /* 用前几次检测稳定 ADC 滤波，避免刚启动时误判 */
+    /* 等待系统稳定后再开始检测 */
     vTaskDelay(pdMS_TO_TICKS(PM_CHECK_INTERVAL_MS));
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(PM_CHECK_INTERVAL_MS));
 
-        uint32_t mv = battery_get_voltage_mv();
-        if (mv == 0) continue; /* 滤波尚未就绪 */
+        uint32_t mv = battery_read_fresh_mv();
+        if (mv == 0) continue;
 
         if (mv < LOW_BATT_ENTER_MV) {
             ESP_LOGI(TAG, "[PM] 电池 %" PRIu32 "mV < %dmV，进入低功耗模式", mv, LOW_BATT_ENTER_MV);
@@ -69,11 +69,17 @@ static void power_mgmt_task(void *arg)
     }
 }
 
-/* ── 唤醒后检查电池，低于恢复阈值则继续睡 ── */
+/* ── 唤醒后检查电池，低于恢复阈值则继续睡 ──
+ *  注意：不读 battery_init 时采的旧值（刚上电可能因浪涌偏低），
+ *        而是等电源稳定后重新采样判断。 */
 static void check_battery_on_wakeup(void)
 {
-    /* battery_init 已同步完成 8-tap 滤波填充，直接读即可 */
-    uint32_t mv = battery_get_voltage_mv();
+    /* 等待电源稳定，避开刚上电浪涌电流 */
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    /* 重新采样取平均，不受 battery_init 旧读数影响 */
+    uint32_t mv = battery_read_fresh_mv();
+    if (mv == 0) return;  /* 采样全部失败，继续运行 */
 
     if (mv < LOW_BATT_EXIT_MV) {
         ESP_LOGI(TAG, "[PM] 唤醒后电池 %" PRIu32 "mV < %dmV，继续睡眠 %ds",
@@ -127,8 +133,11 @@ void app_main(void)
     /* ── 电池电压监测 (ADC1_CH8/GPIO9, 100k+100k 分压) ── */
     battery_init(fsr402_get_adc_handle(flexsense_fsr));
 
-    /* ── 唤醒后检查电池；仍低则继续 Deep Sleep ── */
+    /* ── 唤醒后检查电池；仍低则继续 Deep Sleep（不进 BLE 初始化以省电） ── */
     check_battery_on_wakeup();
+
+    /* 电源已稳定，预填电池滤波器，确保后续 battery_get_voltage_mv() 立即可用 */
+    battery_prime_filter();
 
     /* ── 温湿度传感器 SHT31 (I2C 地址 0x44, 100kHz) ── */
     ESP_ERROR_CHECK(sht31_new(flexsense_i2c_bus, SHT31_ADDR_0, 100000, &flexsense_sht31));
@@ -146,7 +155,7 @@ void app_main(void)
     /* ── BLE 初始化 ── */
     ESP_ERROR_CHECK(ble_flexsense_init());
 
-    /* ── 启动电源管理任务 ── */
+    /* ── 电源管理任务（后台监控电池，低电量时 Deep Sleep） ── */
     xTaskCreatePinnedToCore(power_mgmt_task, "pm", 2048, NULL, 3, NULL, 1);
 
     esp_console_repl_t *repl = NULL;

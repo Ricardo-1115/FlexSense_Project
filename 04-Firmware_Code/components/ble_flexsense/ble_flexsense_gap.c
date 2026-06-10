@@ -66,17 +66,16 @@ void adv_init(void)
     struct ble_gap_adv_params params;
     int rc;
 
-    /* ── 广播数据：Flags + 128-bit 服务 UUID ──
-     * 广播包限 31 字节，放不下完整 UUID + 设备名。
-     * 服务 UUID 放在广播包，设备名放在扫描响应。 */
+    /* ── 广播数据：Flags + 设备名 ──
+     * 设备名放在 ADV 包，确保手机被动扫描即可识别出 FlexSense。
+     * UUID 放在 SCAN_RSP，连接后 service discovery 使用。 */
     memset(&fields, 0, sizeof(fields));
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
 
-    static const ble_uuid128_t adv_uuid =
-        BLE_UUID128_INIT(FLEX_SVC_UUID128_BYTES);
-    fields.uuids128 = &adv_uuid;
-    fields.num_uuids128 = 1;
-    fields.uuids128_is_complete = 1;
+    const char *name = ble_svc_gap_device_name();
+    fields.name = (uint8_t *)name;
+    fields.name_len = strlen(name);
+    fields.name_is_complete = 1;
 
     rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
@@ -84,12 +83,13 @@ void adv_init(void)
         return;
     }
 
-    /* ── 扫描响应：设备名 + TX 功率 ── */
+    /* ── 扫描响应：128-bit 服务 UUID + TX 功率 ── */
     memset(&rsp_fields, 0, sizeof(rsp_fields));
-    const char *name = ble_svc_gap_device_name();
-    rsp_fields.name = (uint8_t *)name;
-    rsp_fields.name_len = strlen(name);
-    rsp_fields.name_is_complete = 1;
+    static const ble_uuid128_t adv_uuid =
+        BLE_UUID128_INIT(FLEX_SVC_UUID128_BYTES);
+    rsp_fields.uuids128 = &adv_uuid;
+    rsp_fields.num_uuids128 = 1;
+    rsp_fields.uuids128_is_complete = 1;
     rsp_fields.tx_pwr_lvl_is_present = 1;
     rsp_fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
 

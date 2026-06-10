@@ -35,6 +35,25 @@ static int32_t  s_filter_buf[FILTER_TAP_NUM];
 static uint8_t  s_filter_idx = 0;
 static uint32_t s_voltage_mv = 0;
 
+/* ── 单次 ADC 采样 → 电池侧电压 (mV) ── */
+static uint32_t adc_read_battery_mv(void)
+{
+    int raw = 0;
+    if (adc_oneshot_read(s_adc_handle, BATTERY_ADC_CHANNEL, &raw) != ESP_OK) {
+        return 0;
+    }
+
+    int cal_mv = 0;
+    if (s_cali_handle != NULL) {
+        adc_cali_raw_to_voltage(s_cali_handle, raw, &cal_mv);
+    }
+    if (cal_mv == 0) {
+        cal_mv = (int64_t)raw * 3100 / 4095;
+    }
+
+    return (uint32_t)cal_mv * DIVIDER_RATIO;
+}
+
 /* ------------------------------------------------------------------ */
 /*  ADC calibration init                                              */
 /* ------------------------------------------------------------------ */
@@ -58,32 +77,10 @@ static void adc_calibration_init(adc_cali_handle_t *out_handle)
 /* ------------------------------------------------------------------ */
 static void sample_battery(void)
 {
-    int raw = 0;
-    esp_err_t ret = adc_oneshot_read(s_adc_handle, BATTERY_ADC_CHANNEL, &raw);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "ADC read failed: %s", esp_err_to_name(ret));
-        return;
-    }
+    uint32_t mv = adc_read_battery_mv();
+    if (mv == 0) return;
 
-    int cal_mv = 0;
-    if (s_cali_handle != NULL) {
-        ret = adc_cali_raw_to_voltage(s_cali_handle, raw, &cal_mv);
-        if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "Raw to voltage failed: %s", esp_err_to_name(ret));
-            cal_mv = 0;
-        }
-    }
-
-    /* Fallback: manual conversion when calibration unavailable */
-    if (cal_mv == 0) {
-        cal_mv = (int64_t)raw * 3100 / 4095;
-    }
-
-    /* Battery-side voltage = ADC pin voltage * 2 */
-    uint32_t bat_mv = cal_mv * DIVIDER_RATIO;
-
-    /* Moving-average filter (ring buffer) */
-    s_filter_buf[s_filter_idx] = (int32_t)bat_mv;
+    s_filter_buf[s_filter_idx] = (int32_t)mv;
     s_filter_idx = (s_filter_idx + 1) % FILTER_TAP_NUM;
 
     int64_t sum = 0;
@@ -121,11 +118,6 @@ void battery_init(adc_oneshot_unit_handle_t adc_handle)
     s_filter_idx = 0;
     s_voltage_mv = 0;
 
-    /* 同步填充滤波环形缓冲区：确保 battery_get_voltage_mv() 即刻返回有效值 */
-    for (int i = 0; i < FILTER_TAP_NUM; i++) {
-        sample_battery();
-    }
-
     xTaskCreatePinnedToCore(battery_task, "battery", 2048, NULL, 5, NULL, 1);
 
     ESP_LOGI(TAG, "Battery monitoring initialized (ADC1_CH8, 12dB, 12-bit, 100k+100k)");
@@ -134,4 +126,37 @@ void battery_init(adc_oneshot_unit_handle_t adc_handle)
 uint32_t battery_get_voltage_mv(void)
 {
     return s_voltage_mv;
+}
+
+/* ── 预填滤波器，确保 battery_get_voltage_mv() 立即可用 ── */
+void battery_prime_filter(void)
+{
+    for (int i = 0; i < FILTER_TAP_NUM; i++) {
+        uint32_t mv = adc_read_battery_mv();
+        s_filter_buf[s_filter_idx] = (int32_t)mv;
+        s_filter_idx = (s_filter_idx + 1) % FILTER_TAP_NUM;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+
+    int64_t sum = 0;
+    for (int i = 0; i < FILTER_TAP_NUM; i++) sum += s_filter_buf[i];
+    s_voltage_mv = (uint32_t)(sum / FILTER_TAP_NUM);
+}
+
+/* ── 刷新读数：多次采样取平均，避开滤波器的旧值 ── */
+uint32_t battery_read_fresh_mv(void)
+{
+    int64_t sum = 0;
+    int valid = 0;
+
+    for (int i = 0; i < FILTER_TAP_NUM; i++) {
+        uint32_t mv = adc_read_battery_mv();
+        if (mv != 0) {
+            sum += mv;
+            valid++;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+
+    return (valid > 0) ? (uint32_t)(sum / valid) : 0;
 }
