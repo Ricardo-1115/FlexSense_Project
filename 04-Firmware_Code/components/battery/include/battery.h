@@ -17,11 +17,9 @@ void battery_prime_filter(void);
 uint32_t battery_get_voltage_mv(void);
 
 /**
- * @brief 重新采样取平均，返回当前电池电压 (mV)
- *        用于刚上电时避开浪涌电流导致的偏低读数。
- *        内部做多次 ADC 采样（带小间隔），结果不参与后台滤波。
+ * @brief 单次 ADC 采样，返回电池侧电压 (mV)
  */
-uint32_t battery_read_fresh_mv(void);
+uint32_t battery_read_once_mv(void);
 
 #ifdef __cplusplus
 }

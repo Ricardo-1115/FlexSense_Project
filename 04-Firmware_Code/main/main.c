@@ -32,8 +32,10 @@ static const char *TAG = "FlexSense";
 /* ── 低功耗阈值（与 LDO / ESP32-S3 / LiPo 匹配） ── */
 #define PM_CHECK_INTERVAL_MS    2000        /* 电源管理检测周期 */
 #define DEEP_SLEEP_SEC          30          /* 每次 deep sleep 时长 */
-#define LOW_BATT_ENTER_MV       3300        /* ≤ 此值进入低功耗 */
-#define LOW_BATT_EXIT_MV        3300        /* ≥ 此值退出低功耗 */
+#define LOW_BATT_WARN_MV        3400        /* 低电量警告阈值（保留 BLE 连接） */
+#define LOW_BATT_SLEEP_MV       3200        /* Deep Sleep 阈值 */
+#define LOW_BATT_EXIT_MV        3300        /* 退出 Deep Sleep 阈值（任一 ≥ 即恢复） */
+#define PM_SETTLE_MS            1500        /* 上电后等待电源稳定再检测电池 */
 
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
 #if !CONFIG_ESP_CONSOLE_SECONDARY_NONE
@@ -41,27 +43,35 @@ static const char *TAG = "FlexSense";
 #endif
 #endif
 
-/* ── 电源管理任务：监测电池，低于阈值则进入 Deep Sleep ── */
+/* 低电量警告标志 — 由电源管理任务维护，确保只通知一次 */
+static bool s_batt_warned = false;
+
+/* ── 电源管理任务：监测电池，分级响应 ── */
 static void power_mgmt_task(void *arg)
 {
-    /* 等待系统稳定后再开始检测 */
     vTaskDelay(pdMS_TO_TICKS(PM_CHECK_INTERVAL_MS));
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(PM_CHECK_INTERVAL_MS));
 
-        uint32_t mv = battery_read_fresh_mv();
+        uint32_t mv = battery_read_once_mv();
         if (mv == 0) continue;
 
-        if (mv < LOW_BATT_ENTER_MV) {
-            ESP_LOGI(TAG, "[PM] 电池 %" PRIu32 "mV < %dmV，进入低功耗模式", mv, LOW_BATT_ENTER_MV);
+        /* 低电量警告（带迟滞，避免反复通知） */
+        if (mv < LOW_BATT_WARN_MV && !s_batt_warned) {
+            flex_svc_set_low_battery(true);
+            s_batt_warned = true;
+            ESP_LOGI(TAG, "[PM] %"PRIu32"mV < %dmV，低电量警告", mv, LOW_BATT_WARN_MV);
+        } else if (mv >= LOW_BATT_WARN_MV && s_batt_warned) {
+            flex_svc_set_low_battery(false);
+            s_batt_warned = false;
+        }
 
-            /* 设置标志，下次 BLE 通知 (1s 内) 会携带给 App */
+        /* 低于休眠阈值 → Deep Sleep */
+        if (mv < LOW_BATT_SLEEP_MV) {
+            ESP_LOGI(TAG, "[PM] %"PRIu32"mV < %dmV，进入 Deep Sleep", mv, LOW_BATT_SLEEP_MV);
             flex_svc_set_low_power(true);
-
-            /* 等待至少一次 BLE 通知发出 */
             vTaskDelay(pdMS_TO_TICKS(1500));
-
             ESP_LOGI(TAG, "[PM] 进入 Deep Sleep %ds", DEEP_SLEEP_SEC);
             esp_sleep_enable_timer_wakeup((uint64_t)DEEP_SLEEP_SEC * 1000000ULL);
             esp_deep_sleep_start();
@@ -70,25 +80,22 @@ static void power_mgmt_task(void *arg)
 }
 
 /* ── 唤醒后检查电池，低于恢复阈值则继续睡 ──
- *  注意：不读 battery_init 时采的旧值（刚上电可能因浪涌偏低），
- *        而是等电源稳定后重新采样判断。 */
+ *  注意：等电源稳定后再读 ADC，不用 battery_init 时采的旧值。 */
 static void check_battery_on_wakeup(void)
 {
-    /* 等待电源稳定，避开刚上电浪涌电流 */
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(PM_SETTLE_MS));
 
-    /* 重新采样取平均，不受 battery_init 旧读数影响 */
-    uint32_t mv = battery_read_fresh_mv();
-    if (mv == 0) return;  /* 采样全部失败，继续运行 */
+    uint32_t mv = battery_read_once_mv();
+    if (mv == 0) return;
 
     if (mv < LOW_BATT_EXIT_MV) {
-        ESP_LOGI(TAG, "[PM] 唤醒后电池 %" PRIu32 "mV < %dmV，继续睡眠 %ds",
+        ESP_LOGI(TAG, "[PM] 唤醒后电池 %"PRIu32"mV < %dmV，继续睡眠 %ds",
                  mv, LOW_BATT_EXIT_MV, DEEP_SLEEP_SEC);
         esp_sleep_enable_timer_wakeup((uint64_t)DEEP_SLEEP_SEC * 1000000ULL);
         esp_deep_sleep_start();
     }
 
-    ESP_LOGI(TAG, "[PM] 电池 %" PRIu32 "mV >= %dmV，恢复运行", mv, LOW_BATT_EXIT_MV);
+    ESP_LOGI(TAG, "[PM] 电池 %"PRIu32"mV >= %dmV，恢复运行", mv, LOW_BATT_EXIT_MV);
 }
 
 static void initialize_nvs(void)
@@ -104,7 +111,6 @@ static void initialize_nvs(void)
 void app_main(void)
 {
     initialize_nvs();
-
     /* 初始化 I2C 主总线
      *
      * SHT31 温湿度传感器和后续其他 I2C 外设都共用这一条总线。
@@ -191,6 +197,5 @@ void app_main(void)
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        // ESP_LOGI(TAG, "Battery: %"PRIu32" mV", battery_get_voltage_mv());
     }
 }

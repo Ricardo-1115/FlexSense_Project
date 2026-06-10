@@ -19,6 +19,7 @@ extern "C" {
 
 /* 标志位 */
 #define FLEX_FLAG_LOW_POWER   (1 << 0)  /* 低功耗模式激活 */
+#define FLEX_FLAG_LOW_BATTERY (1 << 1)  /* 电池电量低，请充电 */
 
 /* 温湿度+电池+状态数据包 (7 bytes) */
 typedef struct __attribute__((packed)) {
@@ -38,6 +39,7 @@ void flex_svc_notify_all(void);
 void flex_svc_notify_fsr(void);
 void flex_svc_start_tasks(void);
 void flex_svc_set_low_power(bool enable);
+void flex_svc_set_low_battery(bool enable);
 
 /* characteristic value handles (set after gatts_count_cfg, used by gap) */
 extern uint16_t g_flex_chr_data_handle;

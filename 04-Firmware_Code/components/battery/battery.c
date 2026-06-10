@@ -128,6 +128,12 @@ uint32_t battery_get_voltage_mv(void)
     return s_voltage_mv;
 }
 
+/* ── 单次 ADC 采样 ── */
+uint32_t battery_read_once_mv(void)
+{
+    return adc_read_battery_mv();
+}
+
 /* ── 预填滤波器，确保 battery_get_voltage_mv() 立即可用 ── */
 void battery_prime_filter(void)
 {
@@ -143,20 +149,4 @@ void battery_prime_filter(void)
     s_voltage_mv = (uint32_t)(sum / FILTER_TAP_NUM);
 }
 
-/* ── 刷新读数：多次采样取平均，避开滤波器的旧值 ── */
-uint32_t battery_read_fresh_mv(void)
-{
-    int64_t sum = 0;
-    int valid = 0;
 
-    for (int i = 0; i < FILTER_TAP_NUM; i++) {
-        uint32_t mv = adc_read_battery_mv();
-        if (mv != 0) {
-            sum += mv;
-            valid++;
-        }
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
-
-    return (valid > 0) ? (uint32_t)(sum / valid) : 0;
-}

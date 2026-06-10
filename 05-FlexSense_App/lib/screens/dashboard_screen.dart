@@ -148,6 +148,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _ConnectionBanner(connected: _connected),
               const SizedBox(height: 8),
 
+              // ── 低电量警告 ──
+              if (_latest != null && _latest!.lowBattery && !_latest!.lowPower)
+                _LowBatteryBanner(),
+              if (_latest != null && _latest!.lowBattery && !_latest!.lowPower)
+                const SizedBox(height: 8),
+
               // ── 低功耗模式警告 ──
               if (_latest != null && _latest!.lowPower)
                 _LowPowerBanner(),
@@ -275,6 +281,39 @@ class _ConnectionBanner extends StatelessWidget {
                 Text('实时', style: TextStyle(fontSize: 12)),
               ],
             ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 低电量警告横幅 ──
+class _LowBatteryBanner extends StatelessWidget {
+  const _LowBatteryBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.yellow.shade100,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.yellow.shade600),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.battery_alert, size: 18, color: Colors.yellow.shade800),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '电池电量低 — 请及时充电',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.yellow.shade900,
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -5,7 +5,8 @@ class SensorData {
   final double temperature;
   final double humidity;
   final int batteryMv;
-  final bool lowPower;  // true = 设备处于低功耗模式
+  final bool lowPower;    // true = 设备处于低功耗模式（即将 Deep Sleep）
+  final bool lowBattery;  // true = 电池电量低（请充电）
 
   // 分压配置（与固件 fsr402_pcb_cfg 对齐）
   static const int _rFixed = 30000;  // Ω, PCB 版 30kΩ
@@ -20,6 +21,7 @@ class SensorData {
     required this.humidity,
     required this.batteryMv,
     this.lowPower = false,
+    this.lowBattery = false,
   });
 
   // ── 按压判断 ──
@@ -67,6 +69,7 @@ class SensorData {
     double? humidity,
     int? batteryMv,
     bool? lowPower,
+    bool? lowBattery,
   }) {
     return SensorData(
       fsrRaw: fsrRaw ?? this.fsrRaw,
@@ -74,6 +77,7 @@ class SensorData {
       humidity: humidity ?? this.humidity,
       batteryMv: batteryMv ?? this.batteryMv,
       lowPower: lowPower ?? this.lowPower,
+      lowBattery: lowBattery ?? this.lowBattery,
     );
   }
 
@@ -100,6 +104,7 @@ class SensorData {
       humidity: b.getUint16(2, Endian.little) / 10.0,
       batteryMv: b.getUint16(4, Endian.little),
       lowPower: (flags & 0x01) != 0,
+      lowBattery: (flags & 0x02) != 0,
     );
   }
 
@@ -116,8 +121,11 @@ class SensorData {
 
   @override
   String toString() {
-    final flags = lowPower ? ' LOW_POWER' : '';
+    final flags = <String>[];
+    if (lowPower) flags.add('LOW_POWER');
+    if (lowBattery) flags.add('LOW_BATTERY');
+    final flagStr = flags.isEmpty ? '' : ' [${flags.join(',')}]';
     return 'FSR=$fsrRaw T=${temperature.toStringAsFixed(1)}°C '
-        'RH=${humidity.toStringAsFixed(1)}% Bat=${batteryMv}mV$flags';
+        'RH=${humidity.toStringAsFixed(1)}% Bat=${batteryMv}mV$flagStr';
   }
 }

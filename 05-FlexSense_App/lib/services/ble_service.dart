@@ -207,6 +207,7 @@ class BleService {
           humidity: dataPart?.humidity ?? 0,
           batteryMv: dataPart?.batteryMv ?? 0,
           lowPower: dataPart?.lowPower ?? false,
+          lowBattery: dataPart?.lowBattery ?? false,
         );
         _mergedData = merged;
         _sensorDataController?.add(merged);
@@ -264,6 +265,7 @@ class BleService {
                 humidity: pkt.humidity,
                 batteryMv: pkt.batteryMv,
                 lowPower: pkt.lowPower,
+                lowBattery: pkt.lowBattery,
               ) ?? pkt;
               if (_mergedData != null) {
                 _sensorDataController?.add(_mergedData!);

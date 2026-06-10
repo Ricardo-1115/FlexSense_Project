@@ -37,6 +37,7 @@ uint16_t g_flex_chr_fsr_handle;
 
 /* 低功耗标志 — 由 flex_svc_set_low_power() 设置，通知时携带 */
 static bool s_low_power = false;
+static bool s_low_battery = false;
 
 /* ── GATT 访问回调: 0xFF01 (温湿度+电池+状态) ── */
 static int flex_chr_access(uint16_t conn_handle, uint16_t attr_handle,
@@ -53,7 +54,7 @@ static int flex_chr_access(uint16_t conn_handle, uint16_t attr_handle,
             }
         }
         pkt.battery_mv = (uint16_t)battery_get_voltage_mv();
-        pkt.flags       = s_low_power ? FLEX_FLAG_LOW_POWER : 0;
+        pkt.flags       = (s_low_power ? FLEX_FLAG_LOW_POWER : 0) | (s_low_battery ? FLEX_FLAG_LOW_BATTERY : 0);
 
         int rc = os_mbuf_append(ctxt->om, &pkt, sizeof(pkt));
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -140,7 +141,7 @@ void flex_svc_notify_all(void)
     pkt.battery_mv = (uint16_t)battery_get_voltage_mv();
 
     /* 状态标志 */
-    pkt.flags = s_low_power ? FLEX_FLAG_LOW_POWER : 0;
+    pkt.flags = (s_low_power ? FLEX_FLAG_LOW_POWER : 0) | (s_low_battery ? FLEX_FLAG_LOW_BATTERY : 0);
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(&pkt, sizeof(pkt));
     if (!om) return;
@@ -178,6 +179,12 @@ void flex_svc_notify_fsr(void)
 void flex_svc_set_low_power(bool enable)
 {
     s_low_power = enable;
+}
+
+/* ── 设置低电量警告标志（由电源管理任务调用） ── */
+void flex_svc_set_low_battery(bool enable)
+{
+    s_low_battery = enable;
 }
 
 /* ── 后台任务 ── */
