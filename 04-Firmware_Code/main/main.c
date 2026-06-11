@@ -34,7 +34,7 @@ static const char *TAG = "FlexSense";
 #define DEEP_SLEEP_SEC          30          /* 每次 deep sleep 时长 */
 #define LOW_BATT_WARN_MV        3400        /* 低电量警告阈值（保留 BLE 连接） */
 #define LOW_BATT_SLEEP_MV       3200        /* Deep Sleep 阈值 */
-#define LOW_BATT_EXIT_MV        3300        /* 退出 Deep Sleep 阈值（任一 ≥ 即恢复） */
+#define LOW_BATT_EXIT_MV        3300        /* 退出 Deep Sleep 阈值 */
 #define PM_SETTLE_MS            1500        /* 上电后等待电源稳定再检测电池 */
 
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
@@ -49,8 +49,6 @@ static bool s_batt_warned = false;
 /* ── 电源管理任务：监测电池，分级响应 ── */
 static void power_mgmt_task(void *arg)
 {
-    vTaskDelay(pdMS_TO_TICKS(PM_CHECK_INTERVAL_MS));
-
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(PM_CHECK_INTERVAL_MS));
 
