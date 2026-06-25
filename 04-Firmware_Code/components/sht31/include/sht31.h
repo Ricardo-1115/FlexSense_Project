@@ -29,7 +29,7 @@ typedef struct {
     float humidity;     /*!< 相对湿度，单位 %RH */
 } sht31_data_t;
 
-/** 测量重复精度 —— 精度越高噪声越低，但转换耗时越长（~4 / 6 / 13 ms） */
+/** 测量重复精度 —— 精度越高噪声越低，但转换耗时越长（Max: 4 / 6 / 15 ms） */
 typedef enum {
     SHT31_REPEAT_HIGH   = 0x06,  /*!< 高精度：噪声最低，耗时最长 */
     SHT31_REPEAT_MEDIUM = 0x0D,  /*!< 中等精度 */
@@ -70,7 +70,7 @@ esp_err_t sht31_del(sht31_handle_ptr_t handle);
  * @brief 单次测量（时钟延展模式）—— 最常用的接口。
  *
  * 发送测量命令后，传感器会拉低 SCL 通知主机"正在测量"，
- * 测量完毕（~13 ms 以内）自动释放 SCL，主机接着读取结果。
+ * 测量完毕（15 ms 以内）自动释放 SCL，主机接着读取结果。
  * 整个过程是阻塞的，但 FreeRTOS 调度器会出让 CPU 给其他任务。
  *
  * @param[in]  handle  设备句柄
@@ -89,7 +89,7 @@ esp_err_t sht31_measure(sht31_handle_ptr_t handle, sht31_repeat_t rep,
  * 适合在定时器中断或任务循环中配合使用，避免长时间阻塞 I2C 总线。
  *
  * @attention 触发后到 fetch 前的最小等待时间：
- *            高精度 ≈ 13 ms，中精度 ≈ 6 ms，低精度 ≈ 4 ms
+ *            高精度 ≈ 15 ms，中精度 ≈ 6 ms，低精度 ≈ 4 ms
  *
  * @param[in] handle  设备句柄
  * @param[in] rep     测量精度

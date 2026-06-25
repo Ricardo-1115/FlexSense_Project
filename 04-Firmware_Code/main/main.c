@@ -124,7 +124,7 @@ void app_main(void)
         .scl_io_num = GPIO_NUM_39,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = 1,
+        .flags.enable_internal_pullup = false,
     };
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &flexsense_i2c_bus));
     ESP_LOGI(TAG, "I2C 总线已初始化 (SDA=GPIO38, SCL=GPIO39)");
